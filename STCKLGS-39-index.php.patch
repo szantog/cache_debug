@@ -1,0 +1,15 @@
+diff --git a/stocklogos/index.php b/stocklogos/index.php
+index 8b83199..4175b73 100644
+--- a/stocklogos/index.php
++++ b/stocklogos/index.php
+@@ -18,4 +18,10 @@ define('DRUPAL_ROOT', getcwd());
+ 
+ require_once DRUPAL_ROOT . '/includes/bootstrap.inc';
+ drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
++
++// Ability to rebuild module_implement cache right after bootstrap.
++if (variable_get('pgm_cache_debug_flush_bootstrap', FALSE)) {
++  pgm_cache_debug_clear_cache();
++}
++
+ menu_execute_active_handler();

@@ -1,0 +1,68 @@
+<?php
+
+/**
+ * @file
+ * Install and uninstall functions for pgm_cache_debug.
+ */
+ 
+/**
+ * Implements hook_install().
+ */
+function pgm_cache_debug_install() {
+ 
+}
+  
+ /**
+  * Implements hook_uninstall().
+  */
+function pgm_cache_debug_uninstall() {
+  
+}
+
+/**
+ * Implements hook_schema().
+ */
+function pgm_cache_debug_schema() {
+  $schema['pgm_cache_debug'] = array(
+    'description' => 'Log changes of module_implements cache.',
+    'fields' => array(
+      'pcid' => array(
+        'description' => 'Id of change record..',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'data' => array(
+        'description' => 'Serialized array of module_implements change record.',
+        'type' => 'blob',
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'log' => array(
+        'description' => 'Log message.',
+        'type' => 'text',
+        'not null' => FALSE,
+        'size' => 'big',
+      ),
+      'timestamp' => array(
+        'description' => 'A Unix timestamp indicating when the cache entry was changed.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'readwrite' => array(
+        'description' => 'The changes happened on read or write or in a hook.',
+        'type' => 'varchar',
+        'length' => 20,
+        'not null' => TRUE,
+        'default' => 'read',
+      ),
+    ),
+    'indexes' => array(
+      'timestamp' => array('timestamp'),
+    ),
+    'primary key' => array('pcid'),
+  );
+
+  return $schema;
+}

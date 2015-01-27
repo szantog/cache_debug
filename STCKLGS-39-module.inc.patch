@@ -1,0 +1,58 @@
+diff --git a/stocklogos/includes/module.inc b/stocklogos/includes/module.inc
+index fe2a980..a6fc682 100644
+--- a/stocklogos/includes/module.inc
++++ b/stocklogos/includes/module.inc
+@@ -694,6 +694,38 @@ function module_hook($module, $hook) {
+ function module_implements($hook, $sort = FALSE, $reset = FALSE) {
+   // Use the advanced drupal_static() pattern, since this is called very often.
+   static $drupal_static_fast;
++
++  if (variable_get('pgm_cache_debug_apply_core_patch', FALSE)) {
++    static $full_bootstrap;
++
++    // This ensures that this clause is only called once after full bootstrap has
++    // happened.
++    if (!isset($full_bootstrap) || $full_bootstrap == FALSE) {
++      $full_bootstrap = drupal_bootstrap(NULL, FALSE) == DRUPAL_BOOTSTRAP_FULL;
++
++      // In case we are pre-bootstrap, ensure to use a different static
++      // implementation.
++      if (!$full_bootstrap) {
++        if (!isset($drupal_static_fast)) {
++          // This does not need a drupal_static().
++          $drupal_static_fast['implementations'] = array();
++        }
++      }
++      elseif (isset($drupal_static_fast)) {
++        // The first time we come here after full bootstrap, but with
++        // $drupal_static_fast already populated, we reset the
++        // $drupal_static_fast variable.
++        // This MUST not use unset() as unset only resets
++        // the variable for the rest of the function, but
++        // restores it again for the next request.
++        $drupal_static_fast = NULL;
++
++        // And clear any existing drupal_alter() cache.
++        drupal_static_reset('drupal_alter');
++      }
++    }
++  }
++
+   if (!isset($drupal_static_fast)) {
+     $drupal_static_fast['implementations'] = &drupal_static(__FUNCTION__);
+   }
+@@ -726,6 +758,14 @@ function module_implements($hook, $sort = FALSE, $reset = FALSE) {
+     }
+     else {
+       $implementations = $implementations->data;
++      if (variable_get('pgm_cache_debug_apply_core_patch', FALSE)) {
++        // In case we don't have full bootstrap, yet, store the data also
++        // in the future static as that cache_get is always the full cache.
++        if (!$full_bootstrap) {
++          $module_implements_cache = &drupal_static('module_implements');
++          $module_implements_cache['implementations'] = $implementations;
++        }
++      }
+     }
+   }
+ 

@@ -1,0 +1,4 @@
+name = PGM Cache Debug
+description = Helper module to analyze, log, and fix <a href="https://www.drupal.org/node/4961702">module_implements_cache() can be polluted by hook_boot() implementations calling module_invoke_all() directly or indirectly</a> issue.
+package = Prometheus
+core = 7.x

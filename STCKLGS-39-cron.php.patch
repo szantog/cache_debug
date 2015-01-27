@@ -1,0 +1,16 @@
+diff --git a/stocklogos/cron.php b/stocklogos/cron.php
+index c6ce531..2ade08d 100644
+--- a/stocklogos/cron.php
++++ b/stocklogos/cron.php
+@@ -13,6 +13,11 @@ define('DRUPAL_ROOT', getcwd());
+ include_once DRUPAL_ROOT . '/includes/bootstrap.inc';
+ drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
+ 
++// Ability to rebuild module_implement cache right after bootstrap.
++if (variable_get('pgm_cache_debug_flush_bootstrap_cron', FALSE)) {
++  pgm_cache_debug_clear_cache();
++}
++
+ if (!isset($_GET['cron_key']) || variable_get('cron_key', 'drupal') != $_GET['cron_key']) {
+   watchdog('cron', 'Cron could not run because an invalid key was used.', array(), WATCHDOG_NOTICE);
+   drupal_access_denied();

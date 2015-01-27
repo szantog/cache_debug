@@ -1,0 +1,278 @@
+<?php
+
+/**
+ * @file
+ * Developed by Gabor Szanto.
+ *  hello@szantogabor.com
+ *  http://szantogabor.com
+ */
+
+/**
+ * Implements hook_boot().
+ */
+function pgm_cache_debug_boot() {
+  // Investigation is necessary under any circumstances. hook_boot is the proper
+  // place to register own shutdown function to run on cached pages.
+  drupal_register_shutdown_function('pgm_cache_debug_debug');
+}
+
+/**
+ * Implements hook_menu().
+ */
+function pgm_cache_debug_menu() {
+  $items = array();
+
+  $items['admin/reports/pgm-cache_debug'] = array(
+    'title' => 'Track module_implements cache changes',
+    'page callback' => 'pgm_cache_debug_report_page',
+    'access arguments' => array('access administration pages'),
+  );
+
+  return $items;
+}
+
+/**
+ * Page callback for report page.
+ */
+function pgm_cache_debug_report_page() {
+  $build = array();
+
+  $build['settings_form'] = drupal_get_form('pgm_cache_debug_settings_form');
+
+  $header = array(
+    array('data' => t('Id'), 'field' => 'p.pcid'),
+    array('data' => t('Diff'), 'field' => 'p.data'),
+    array('data' => t('Log message'), 'field' => 'p.log'),
+    array('data' => t('Date'), 'field' => 'p.timestamp', 'sort' => 'desc'),
+    array('data' => t('Read/Write'), 'field' => 'p.readwrite'),
+  );
+
+  $query = db_select('pgm_cache_debug', 'p')
+    ->extend('PagerDefault')
+    ->extend('TableSort');
+  $query->fields('p', array(
+      'pcid',
+      'data',
+      'log',
+      'timestamp',
+      'readwrite',
+    ));
+
+  $result = $query
+    ->limit(20)
+    ->orderByHeader($header)
+    ->execute();
+
+  $rows = array();
+
+  foreach ($result as $log) {
+    $rows[] = array(
+      'data' => array(
+        $log->pcid,
+        kprint_r(unserialize($log->data), TRUE),
+        filter_xss_admin($log->log),
+        format_date($log->timestamp, 'short'),
+        $log->readwrite,
+      ),
+    );
+  }
+
+  $build['log_table'] = array(
+    '#theme' => 'table',
+    '#header' => $header,
+    '#rows' => $rows,
+    '#empty' => t('No log messages available.'),
+  );
+  $build['log_pager'] = array('#theme' => 'pager');
+
+  return $build;
+}
+
+/**
+ * Settings form of report page.
+ *
+ * @see pgm_cache_debug_report_page()
+ * @ingroup forms
+ */
+function pgm_cache_debug_settings_form($form, &$form_state) {
+  $form['pgm_cache_debug_enable_log'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Log cache record changes.'),
+    '#description' => t('DO NOT USE ON LIVE! Only for localohost and dev sites'),
+    '#default_value' => variable_get('pgm_cache_debug_enable_log', FALSE),
+  );
+
+  $form['pgm_cache_debug_apply_core_patch'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Apply 496170-24 core patch.'),
+    '#default_value' => variable_get('pgm_cache_debug_apply_core_patch', FALSE),
+  );
+
+  $form['pgm_cache_debug_flush_bootstrap'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Flush module_implements cache after bootstrap.'),
+    '#default_value' => variable_get('pgm_cache_debug_flush_bootstrap', FALSE),
+  );
+
+  $form['pgm_cache_debug_flush_bootstrap_cron'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Flush module_implements cache after bootstrap on cron running.'),
+    '#default_value' => variable_get('pgm_cache_debug_flush_bootstrap_cron', FALSE),
+  );
+
+  $form['pgm_cache_debug_flush_page_alter'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Flush module_implements cache in hook_page_alter.'),
+    '#default_value' => variable_get('pgm_cache_debug_flush_page_alter', FALSE),
+  );
+
+  $form['pgm_cache_debug_flush_shutdown'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Flush module_implements cache when shutdown.'),
+    '#default_value' => variable_get('pgm_cache_debug_flush_shutdown', FALSE),
+  );
+
+  $form['pgm_cache_debug_force_override'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Force override (reset) module_implements cache on submit.'),
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Submit function of settings form.
+ */
+function pgm_cache_debug_settings_form_submit($form, &$form_state) {
+  if ($form_state['values']['pgm_cache_debug_force_override']) {
+    // Reset our stored cache data. It will be refilled on shutdown.
+    variable_set('pgm_cache_debug_module_implements_cache_saved', FALSE);
+  }
+}
+
+/**
+ * Save log record object to database.
+ *
+ * @param object $log
+ *   The log object to be saved.
+ */
+function pgm_cache_debug_save($log) {
+  drupal_write_record('pgm_cache_debug', $log);
+}
+
+/**
+ * Load a debug log record.
+ *
+ * @param int $pcid
+ *   The id of log record.
+ *
+ * @return object
+ *   The loaded log object.
+ */
+function pgm_cache_debug_load($pcid) {
+  return db_query('SELECT p.* FROM {pgm_cache_debug} p WHERE p.pcid = :id', array(':id' => $pcid))->fetchObject();
+}
+
+/**
+ * Helper function to determine if the module_implements cache must be kept.
+ */
+function pgm_cache_debug_preserve_cache($force = FALSE) {
+  if ($force) {
+    return TRUE;
+  }
+
+  return variable_get('pgm_cache_debug_preserve_cache' . FALSE);
+}
+
+/**
+ * Shutdown function to analyze differences between actual and saved cache data.
+ */
+function pgm_cache_debug_debug() {
+  if (variable_get('pgm_cache_debug_flush_shutdown', FALSE)) {
+    pgm_cache_debug_clear_cache();
+  }
+
+  if (variable_get('pgm_cache_debug_enable_log', FALSE)) {
+    $cache = cache_get('module_implements', 'cache_bootstrap');
+    $data = $cache->data;
+    $saved = variable_get('pgm_cache_debug_module_implements_cache_saved', FALSE);
+
+    // Always need a stored variable to compare actual and saved value.
+    if (!$saved) {
+      variable_set('pgm_cache_debug_module_implements_cache_saved', $data);
+    }
+
+    // Compare and store differences between saved and actual cache record.
+    if ($saved != $data) {
+      $diff = array_diff_assoc($data, $saved);
+      $data_build = array(
+        'data' => $data,
+        'saved' => $saved,
+        'diff' => !empty($diff) ? $diff : array_diff_assoc($saved, $data),
+      );
+      $log = new stdClass();
+      $log->data = serialize($data_build);
+      $log->log = implode('<br />', _pgm_cache_debug_collect_log_vars());
+      $log->timestamp = REQUEST_TIME;
+      $log->readwrite = 'shutdown';
+
+      pgm_cache_debug_save($log);
+
+      // Revert cache back to the saved state, otherwise set the new cache data
+      // as saved.
+      if (pgm_cache_debug_preserve_cache()) {
+        cache_set('module_implements', $saved, 'cache_bootstrap');
+        // Cache hook_info is built based on module_implements cache, no need
+        // set it directly, fair enough to flush it.
+        cache_clear_all('hook_info', 'cache_bootstrap');
+      }
+      else {
+        variable_set('pgm_cache_debug_module_implements_cache_saved', $data);
+      }
+    }
+  }
+}
+
+/**
+ * Clear all module_implements related caches and statics.
+ */
+function pgm_cache_debug_clear_cache() {
+  cache_set('module_implements', array(), 'cache_bootstrap');
+  drupal_static_reset('module_hook_info');
+  drupal_static_reset('drupal_alter');
+  cache_clear_all('hook_info', 'cache_bootstrap');
+}
+
+/**
+ * Helper function to collect log message entries based on settings.
+ *
+ * @return array
+ *   A keyed array where key is the variable name without module prefix, the value is the log entry's text.
+ */
+function _pgm_cache_debug_collect_log_vars() {
+  $return = array();
+
+  $return['path'] = t('Path: @path', array('@path' => $_GET['q']));
+
+  if (variable_get('pgm_cache_debug_apply_core_patch', FALSE)) {
+    $return['apply_core_patch'] = t('Core patch 496170-24 is applied.');
+  }
+
+  if (variable_get('pgm_cache_debug_flush_bootstrap', FALSE)) {
+    $return['flush_bootstrap'] = t('Caches and statics is rebuilt after bootstrap.');
+  }
+
+  if (variable_get('pgm_cache_debug_flush_bootstrap_cron', FALSE) && !lock_may_be_available('cron')) {
+    $return['flush_bootstrap_cron'] = t('Caches and statics is rebuilt after bootstrap on cron running.');
+  }
+
+  if (variable_get('pgm_cache_debug_flush_page_alter', FALSE)) {
+    $return['flush_page_alter'] = t('Caches and statics is rebuilt on hook_page_alter.');
+  }
+
+  if (variable_get('pgm_cache_debug_flush_shutdown', FALSE)) {
+    $return['flush_shutdown'] = t('Caches and statics is rebuilt on shutdown.');
+  }
+
+  return $return;
+}
